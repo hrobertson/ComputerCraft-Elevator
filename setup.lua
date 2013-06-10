@@ -31,7 +31,7 @@ local function getModemSide()
 	local sides = {"left","right","top","bottom","back","front"}
 	local i = 1
 	while i <= #sides do
-		if peripheral.getType( sides[i] ) ~= "modem" then	
+		if peripheral.getType( sides[i] ) ~= "modem" then
 			table.remove(sides,i)
 		else
 			i = i + 1
@@ -83,7 +83,7 @@ end--getModemSide()
 local function getFloorName()
 	printSetupHeader()
 	term.setCursorPos(7,9); term.write("Enter a name/label for this floor: ")
-	term.setCursorPos(14,11);	term.setCursorBlink(true)
+	term.setCursorPos(14,11); term.setCursorBlink(true)
 	local name
 	repeat
 		name = io.read()
@@ -104,7 +104,7 @@ local function getGPS()
 		term.setCursorPos(14,11)
 		term.write("[ Yes ]             No")
 		while true do
-			term.setCursorPos(14,10)
+			term.setCursorPos(14,11)
 			_, keycode = os.pullEvent ("key")
 			if (keycode == 205) or (keycode == 49) then -- right
 				if selected == 1 then
@@ -136,14 +136,14 @@ local function getCoordsInput()
 	term.setCursorPos(8,7); term.write("x coordinate:")
 	term.setCursorPos(8,8); term.write("y coordinate:")
 	term.setCursorPos(8,9); term.write("z coordinate:")
-	term.setCursorPos(8,22); setCursorBlink(true)
+	term.setCursorPos(22,7); term.setCursorBlink(true)
 	
 	local selected, inputs = 1, {"","",""}
 	
 	local function redraw()
 		term.setCursorPos(22+inputs[selected]:len(),6+selected)
 	end
-
+	
 	local eventHandlers = {
 		key = function(keycode)
 			if (keycode == 200) and (selected > 1) then -- up
@@ -166,9 +166,8 @@ local function getCoordsInput()
 		end,
 
 		char = function(c)
-			if (inputs[selected]:len() < 4) and (string.find(c, "%d") ~= nil) then -- number entered
+			if (inputs[selected]:len() < 4) and (string.find(c, "[%d\-]") ~= nil) then -- number entered
 				inputs[selected] = inputs[selected]..c
-				--term.setCursorPos(22+inputs[selected]:len(),6+selected)
 				term.write(c)
 			end
 		end,
@@ -180,7 +179,7 @@ local function getCoordsInput()
 	}
 	while true do
 		local x,y,z = eventHandlers:handle(os.pullEvent())
-		if y then return x,y,z end
+		if x then return x,y,z end
 	end
 
 end
@@ -233,7 +232,7 @@ local function getFloorCoords()
 				elseif selected == 2 then
 					return getGPS()
 				elseif selected == 3 then
-					getCoordsInput() -- input all 3
+					return getCoordsInput() -- input all 3
 				end
 			elseif (keycode == 14) then -- backspace
 				if ((selected == 1) and (y ~= "")) then

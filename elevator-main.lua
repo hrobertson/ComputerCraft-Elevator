@@ -28,7 +28,7 @@ You are permitted to modify and or build upon this work.
 If you make your own version publicly available, then please also publish it at the above forum thread. Thank you and happy coding!
 --]]
 
-version = "2.0.1b"
+version = "2.0.2b"
 response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD")
 if response then
 	local sResponse = response.readLine()
@@ -56,7 +56,7 @@ modem = peripheral.wrap(modemSide)
 if z ~= nil then
 	print("Starting GPS host")
 	if not modem.isOpen( gps.CHANNEL_GPS ) then
-		print( "Opening GPS channel on "..sModemSide.." modem" )
+		print( "Opening GPS channel on "..modemSide.." modem" )
 		modem.open( gps.CHANNEL_GPS )
 	end
 else 
@@ -97,7 +97,7 @@ end
 
 function sortReverse(t)
 	table.sort(t.heights, function (a,b) return (a > b) end)
-	for i=1,#t.heights do	if t.heights[i] == y then t.heights.y = i; break end end
+	for i=1,#t.heights do if t.heights[i] == y then t.heights.y = i; break end end
 end
 
 function transmit(sChannel, sReplyChannel, sMessage)
@@ -199,7 +199,7 @@ handlers = {
 
 	redstone =
 		function()
-			if ignoreDetector ==	false and colors.test(redstone.getBundledInput(bundleSide), colors[detetctorWire]) then
+			if ignoreDetector == false and colors.test(redstone.getBundledInput(bundleSide), colors[detetctorWire]) then
 				ignoreDetector = true
 				transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CLEAR")
 				redstone.setBundledOutput(bundleSide, 0)
@@ -263,9 +263,9 @@ transmit( CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ANNOUNCE"..y.."\031"..floo
 if #floors.heights == 1 then
 	-- This floor only knows about it's self
 	term.clear()
-	term.setCursorPos(7,4);	term.write("No other floors discovered")
-	term.setCursorPos(7,6);	term.write("Once the elevator program is started")
-	term.setCursorPos(7,7);	term.write("on other floors, they will appear here.")
+	term.setCursorPos(7,4); term.write("No other floors discovered")
+	term.setCursorPos(7,6); term.write("Once the elevator program is started")
+	term.setCursorPos(7,7); term.write("on other floors, they will appear here.")
 else
 	local selected
 	renderFloorList()
