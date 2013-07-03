@@ -133,6 +133,12 @@ handlers = {
 				else
 					displayBusy()
 				end
+			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,9) == "ELEV_CALL" then
+				acceptInput = false
+				displayBusy()
+				rs.setBundledOutput(bundleSide, colors[boardingWire])
+				sleep(1)
+				rs.setBundledOutput(bundleSide, 0)
 			elseif sChannel == CHANNEL_ELEVATOR and sMessage == "ELEV_CLEAR" then
 				if departedTimer then departedTimer = nil end
 				acceptInput = true
@@ -163,8 +169,15 @@ handlers = {
 						end
 						redrawSelected(previousSelection)
 					end
+				elseif (keycode == 57) then -- Space
+					ignoreDetector = false
+					acceptInput = false
+					rs.setBundledOutput(bundleSide, colors[elevatorWire])
+					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CALL")
+					term.clear()
+					term.setCursorPos(20,8)
+					term.write("Cart called")
 				elseif keycode == 28 and selected ~= floors.heights.y then -- enter
-					acceptInput = true
 					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ACTIVATE"..floors.heights[selected])
 					rs.setBundledOutput(bundleSide, colors[boardingWire])
 					acceptInput = false
@@ -224,6 +237,10 @@ end
 
 function renderFloorList()
 	term.clear()
+	if updateAvailble then
+		term.setCursorPos(30,1)
+		term.write("New version available!")
+	end
 	local line = 10 - floors.heights.y
 	for i=1,#floors.heights do
 		term.setCursorPos(13-(tostring(floors.heights[i]):len()),line)
@@ -231,11 +248,7 @@ function renderFloorList()
 		line = line + 1
 	end
 	term.setCursorPos(2,18); term.write("Up/Down arrow keys to select destination")
-	term.setCursorPos(2,19); term.write("Press Enter to activate")
-	if updateAvailble then
-		term.setCursorPos(30,19)
-		term.write("New version available!")
-	end
+	term.setCursorPos(2,19); term.write("Press Enter to activate         Space to call cart")
 	term.setCursorPos(8,9); term.write(">")
 	term.setCursorPos(42,9); term.write("<")
 	selected = floors.heights.y
