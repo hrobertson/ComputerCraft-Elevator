@@ -28,7 +28,7 @@ You are permitted to modify and or build upon this work.
 If you make your own version publicly available, then please also publish it at the above forum thread. Thank you and happy coding!
 --]]
 
-version = "2.0.2b"
+version = "2.0.3b"
 response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD")
 if response then
 	local sResponse = response.readLine()
