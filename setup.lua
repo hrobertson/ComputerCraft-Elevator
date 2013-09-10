@@ -8,8 +8,6 @@ This is a LUA program for ComputerCraft, a Minecraft mod by Daniel Ratcliffe aka
 This program is for controlling elevators from the Railcraft mod (http://www.railcraft.info/)
 For help and feedback please use this forum thread: http://www.computercraft.info/forums2/index.php?/topic/1302-railcraft-mod-elevator-control/
 
-This program requires RedPower 2 wires (Core + Digital modules). RedPower 2 is not currently available for MC 1.5
-
 This is version 2b. It is in the beta release stage and so there may be bugs. If you believe you have found a bug, please report it at the above forum thread.
 
 You are permitted to modify and or build upon this work.
@@ -44,7 +42,7 @@ local function getModemSide()
 		return sides[1]
 	end
 
-	-- If there is mroe than one modem attached, ask user to choose one
+	-- If there is more than one modem attached, ask user to choose one
 	local selected = 1
 	local function redraw()
 		printSetupHeader()
@@ -79,6 +77,10 @@ local function getModemSide()
 		redraw()
 	end
 end--getModemSide()
+
+local function getElevatorID()
+
+end--getElevatorID()
 
 local function getFloorName()
 	printSetupHeader()
@@ -125,17 +127,21 @@ local function getGPS()
 			end
 		end--while
 	else -- We didn't get coords from GPS
-		term.write("... No response")
-		term.setCursorPos(5,9)
+		term.write("... could not determine coordinates")
 		return
 	end
-end--function getGPS
+end--getGPS()
 
 local function getCoordsInput()
 	printSetupHeader()
 	term.setCursorPos(8,7); term.write("x coordinate:")
 	term.setCursorPos(8,8); term.write("y coordinate:")
 	term.setCursorPos(8,9); term.write("z coordinate:")
+	term.setCursorPos(4,13); term.write("Important: If your GPS hosts are all in a")
+	term.setCursorPos(4,14); term.write("vertical line (same x & y coordinates), then")
+	term.setCursorPos(4,15); term.write("you need to place another host off to the side")
+	term.setCursorPos(4,16); term.write("to enable an accurate GPS fix")
+	term.setCursorPos(4,17); term.write("(Usage: gps host x y z")
 	term.setCursorPos(22,7); term.setCursorBlink(true)
 	
 	local selected, inputs = 1, {"","",""}
@@ -181,8 +187,7 @@ local function getCoordsInput()
 		local x,y,z = eventHandlers:handle(os.pullEvent())
 		if x then return x,y,z end
 	end
-
-end
+end--getCoordsInput
 
 local function getFloorCoords()
 	-- We need at least the y (height) coordinate so we can know what order the floors are in
@@ -228,11 +233,11 @@ local function getFloorCoords()
 				end
 			elseif (keycode == 28) then -- enter
 				if ((selected == 1) and (y ~= "")) then
-					return nil, y
+					return true, nil, y
 				elseif selected == 2 then
-					return getGPS()
+					return true, getGPS()
 				elseif selected == 3 then
-					return getCoordsInput() -- input all 3
+					return true, getCoordsInput() -- input all 3
 				end
 			elseif (keycode == 14) then -- backspace
 				if ((selected == 1) and (y ~= "")) then
@@ -258,8 +263,8 @@ local function getFloorCoords()
 		end
 	}
 	while true do
-		local x,y,z = eventHandlers:handle(os.pullEvent())
-		if y then return x,y,z end
+		local RETURN,x,y,z = eventHandlers:handle(os.pullEvent())
+		if RETURN then return x,y,z end
 	end
 end--getFloorCoords()
 
@@ -278,13 +283,16 @@ if side == nil then
 	return -- terminate program
 end
 
+local elevator = getElevatorID()
+
 local floorName = getFloorName()
 
 local x,y,z
 
 while true do
 	x,y,z = getFloorCoords()
-	if (x==nil) and (y==nil) then
+	if y==nil then
+		term.setCursorPos(5,11)
 		term.write("Press any key to continue... ")
 		os.pullEvent("key")
 	else
