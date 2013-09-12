@@ -18,18 +18,37 @@ NOTE: This is the setup program. It will create a file called elevator.cfg and d
 Use Ctrl+T to terminate the program
 --]]
 
-local function printSetupHeader(saving)
+CHANNEL_ELEVATOR = 34080
+
+function writeToPos(x, y, str)
+	term.setCursorPos(x, y)
+	term.write(str)
+end
+function clearArea(x1,y1,x2,y2)
+	for i=y1,y2 do
+		writeToPos(x1,i,string.rep(" ",x2-x1))
+	end
+end
+function eventHandle(tHandlers, f, ...)
+	f = tHandlers[f]
+	if type(f) == "function" then return f(...) end
+end
+function debug(msg)
+	print(msg)
+	os.pullEvent("key")
+end
+function printSetupHeader(saving)
 	term.clear()
-	term.setCursorPos(2,2); term.write("====================[ Setup ]====================")
-	if saving then term.setCursorPos(5,5); term.write("Saving data... "); term.setCursorBlink(true) end
+	writeToPos(2,2,"====================[ Setup ]====================")
+	if saving then writeToPos(5,5,"Saving data... "); term.setCursorBlink(true) end
 end
 
-local function getModemSide()
+function getModemSide()
 	-- Find all attached modems
 	local sides = {"left","right","top","bottom","back","front"}
 	local i = 1
 	while i <= #sides do
-		if peripheral.getType( sides[i] ) ~= "modem" then
+		if peripheral.getType(sides[i]) ~= "modem" then
 			table.remove(sides,i)
 		else
 			i = i + 1
@@ -46,11 +65,10 @@ local function getModemSide()
 	local selected = 1
 	local function redraw()
 		printSetupHeader()
-		term.setCursorPos(7,9); term.write("Use the modem on the          side")
+		writeToPos(7,9,"Use the modem on the          side")
 		for i=1,#sides do
 			if (i == selected) then
-				term.setCursorPos(29,9)
-				term.write(sides[i])
+				writeToPos(29,9,sides[i])
 			else
 				if (9-selected+i)<9 then
 					term.setCursorPos(29,(8-selected+i))
@@ -60,7 +78,7 @@ local function getModemSide()
 				term.write(sides[i])
 			end
 		end--for
-		term.setCursorPos(4,18); term.write("[ Arrow keys to select, Enter to confirm ]")
+		writeToPos(4,18,"[ Arrow keys to select, Enter to confirm ]")
 	end--redraw()
 
 	redraw(); -- First draw
@@ -78,33 +96,118 @@ local function getModemSide()
 	end
 end--getModemSide()
 
-local function getElevatorID()
+function getElevatorID()
+	local elevatorID
+	printSetupHeader()
+	writeToPos(1, 4, "Searching for other elevators to avoid conflicts...")
+	writeToPos(3, 6, "Remember that rain reduces modem range. If it is")
+	writeToPos(3, 7, "raining, perhaps exit now and try again later.")
+	local modem = peripheral.wrap(modemSide)
+	modem.open(os.getComputerID())
+	modem.transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_DISCOVER") -- Ask all elevator terminals in range to tell us their elevator ID
+	local tElevatorIDs = {}
+	local mt = {
+		tMeta = {},
+		iIndex = 1,
+		__newindex = function(t,k,v)
+			this = getmetatable(t)
+			if this.tMeta[k] ~= true then
+				this.tMeta[k] = true
+				rawset(t,this.iIndex,k)
+				this.iIndex = this.iIndex + 1
+			end
+		end,
+	}
+	setmetatable(tElevatorIDs,mt)
+	local _, _, sChannel, sReplyChannel, sMessage
+	local discoveryTimer
+	local tHandlers = {
+		modem_message = function (_, sChannel, sReplyChannel, sMessage, nDistance)
+			discoveryTimer = os.startTimer(3) -- Reset timer
+			if sChannel == os.getComputerID() and sMessage:sub(1,7) == "ELEV_ID" then
+				-- Using elevator ID as the index, record unique IDs. On duplicate, just overwrite - probably more efficient than reading and checking each time.
+				tElevatorIDs[sMessage:sub(8)] = true
+			end
+		end,
+		timer = function (timerID)
+			if timerID == discoveryTimer then	return true	end
+		end
+	}
+	discoveryTimer = os.startTimer(3) -- Loop will timeout after three seconds of not receiving an event
+	while true do
+		local v = eventHandle(tHandlers, os.pullEvent())
+		if v then break end
+	end
+	writeToPos(3, 9, "Press any key to continue...") -- Pause to let them read the message about rain
+	os.pullEvent("key")
 
+	local function getCustomID()
+		writeToPos(5, 7, "Please specify an ID: ")
+		writeToPos(2, 9, "IDs can have letters, numbers and other characters")
+		term.setCursorPos(27, 7); term.setCursorBlink(true)
+		return io.read()
+	end
+
+	printSetupHeader()
+	if #tElevatorIDs == 0 then
+		writeToPos(2, 5, "No other elevators detected.")
+		elevatorID = getCustomID()
+	else
+		writeToPos(2, 5, "The following elevator IDs were detected:")
+		writeToPos(3, 18, "Press Enter to use the selected ID")
+		writeToPos(3, 19, "Press Tab to create a new elevator ID")
+		local selected = 1
+		for k,v in ipairs(tElevatorIDs) do
+			writeToPos(5, 6+k, v)
+		end
+		writeToPos(3,7,">")
+		local function updateSelection(previousSelection)
+			writeToPos(3,6+previousSelection," ")
+			writeToPos(3,6+selected,">")
+		end
+		while true do
+			local _, keycode = os.pullEvent ("key")
+			if (keycode == 200) then -- up
+				previousSelection = selected
+				if selected > 1 then selected = selected-1 end
+			elseif (keycode == 208) then -- down
+				previousSelection = selected
+				if selected < #tElevatorIDs then selected = selected+1 end
+			elseif (keycode == 28) then -- enter
+				elevatorID = tElevatorIDs[selected]
+				break
+			elseif (keycode == 15) then -- tab
+				clearArea(2,5,52,9)
+				elevatorID = getCustomID()
+				break
+			end
+			updateSelection(previousSelection)
+		end
+	end
+	return elevatorID
 end--getElevatorID()
 
-local function getFloorName()
+function getFloorName()
 	printSetupHeader()
-	term.setCursorPos(7,9); term.write("Enter a name/label for this floor: ")
+	writeToPos(7,9,"Enter a name/label for this floor: ")
 	term.setCursorPos(14,11); term.setCursorBlink(true)
 	local name
 	repeat
 		name = io.read()
 	until name ~= ""
 	return name
-end
+end--getFloorName()
 
-local function getGPS()
+function getGPS()
 	printSetupHeader()
-	term.setCursorPos(5,5); term.write("Waiting for GPS response... ")
+	writeToPos(5, 5, "Waiting for GPS response... ")
 	term.setCursorPos(5,7)
 	local x, y, z = gps.locate(2)
 	if x ~= nil then
 		term.write("... coordinates received")
-		term.setCursorPos(5,9)
-		term.write("Start GPS host in the background?")
+		writeToPos(5, 9, "Start GPS host in the background?")
 		local _, keycode, selected = nil, nil, 1
-		term.setCursorPos(14,11)
-		term.write("[ Yes ]             No")
+		writeToPos(14,11,"[ Yes ]             No")
 		while true do
 			term.setCursorPos(14,11)
 			_, keycode = os.pullEvent ("key")
@@ -132,17 +235,17 @@ local function getGPS()
 	end
 end--getGPS()
 
-local function getCoordsInput()
+function getCoordsInput()
 	printSetupHeader()
-	term.setCursorPos(8,7); term.write("x coordinate:")
-	term.setCursorPos(8,8); term.write("y coordinate:")
-	term.setCursorPos(8,9); term.write("z coordinate:")
-	term.setCursorPos(4,13); term.write("Important: If your GPS hosts are all in a")
-	term.setCursorPos(4,14); term.write("vertical line (same x & y coordinates), then")
-	term.setCursorPos(4,15); term.write("you need to place another host off to the side")
-	term.setCursorPos(4,16); term.write("to enable an accurate GPS fix")
-	term.setCursorPos(4,17); term.write("(Usage: gps host x y z")
-	term.setCursorPos(22,7); term.setCursorBlink(true)
+	writeToPos(8,7,"x coordinate:")
+	writeToPos(8,8,"y coordinate:")
+	writeToPos(8,9,"z coordinate:")
+	writeToPos(4,13,"Important: If your GPS hosts are all in a")
+	writeToPos(4,14,"vertical line (same x & y coordinates), then")
+	writeToPos(4,15,"you need to place another host off to the side")
+	writeToPos(4,16,"to enable an accurate GPS fix")
+	writeToPos(4,17,"(Usage: gps host x y z")
+	term.setCursorPos(22,7)setCursorBlink(true)
 	
 	local selected, inputs = 1, {"","",""}
 	
@@ -159,7 +262,7 @@ local function getCoordsInput()
 				selected = selected+1
 				redraw(selected);
 			elseif (keycode == 28) then -- enter
-				for i,input in ipairs( inputs ) do
+				for i,input in ipairs(inputs) do
 					if inputs[selected] == "" then return end
 				end
 				return inputs[1], inputs[2], inputs[3]
@@ -189,18 +292,18 @@ local function getCoordsInput()
 	end
 end--getCoordsInput
 
-local function getFloorCoords()
+function getFloorCoords()
 	-- We need at least the y (height) coordinate so we can know what order the floors are in
 	printSetupHeader()
-	term.setCursorPos(4,4); term.write("The y (height) coordinate is required so that")
-	term.setCursorPos(4,5); term.write("floors can be listed in the correct order.")
-	term.setCursorPos(4,7); term.write("You have a few options:")
-	term.setCursorPos(6,10); term.write("1. Enter y coordinate:")
-	term.setCursorPos(6,12); term.write("2. Use GPS (requires 4 GPS hosts)")
-	term.setCursorPos(6,14); term.write("3. Enter x,y,z and then this computer")
-	term.setCursorPos(13,15); term.write("can become a GPS host.")
-	term.setCursorPos(7,16); term.write("(recommended if you have over 4 floors)")
-	term.setCursorPos(2,19); term.write("(Press F3 to view player coordinates)")
+	writeToPos(4,4,"The y (height) coordinate is required so that")
+	writeToPos(4,5,"floors can be listed in the correct order.")
+	writeToPos(4,7,"You have a few options:")
+	writeToPos(6,10,"1. Enter y coordinate:")
+	writeToPos(6,12,"2. Use GPS (requires 4 GPS hosts)")
+	writeToPos(6,14,"3. Enter x,y,z and then this computer")
+	writeToPos(13,15,"can become a GPS host.")
+	writeToPos(7,16,"(recommended if you have over 4 floors)")
+	writeToPos(2,19,"(Press F3 to view player coordinates)")
 	
 	local selected, line, y = 1, {10,12,14}, ""
 
@@ -273,17 +376,17 @@ if not shell.run("pastebin", "get", "iJWyUQVr", "elevator-main.lua") then
 	return
 end
 
-local side = getModemSide()
-if side == nil then
+modemSide = getModemSide()
+if modemSide == nil then
 	printSetupHeader()
-	term.setCursorPos(15,6); term.write("! No modem detected !")
-	term.setCursorPos(8,9); term.write("A modem is required for")
-	term.setCursorPos(8,11); term.write("communication with the other floors")
-	term.setCursorPos(4,13); term.write("Please attach a modem then try again")
+	writeToPos(15,6,"! No modem detected !")
+	writeToPos(8,9,"A modem is required for")
+	writeToPos(8,11,"communication with the other floors")
+	writeToPos(4,13,"Please attach a modem then try again")
 	return -- terminate program
 end
 
-local elevator = getElevatorID()
+local elevatorID = getElevatorID()
 
 local floorName = getFloorName()
 
@@ -292,8 +395,7 @@ local x,y,z
 while true do
 	x,y,z = getFloorCoords()
 	if y==nil then
-		term.setCursorPos(5,11)
-		term.write("Press any key to continue... ")
+		writeToPos(5, 11, "Press any key to continue...")
 		os.pullEvent("key")
 	else
 		break
@@ -305,21 +407,24 @@ if x and y then
 end
 
 printSetupHeader(true)
-local file = io.open(shell.resolve(".").."/elevator.cfg", "w")
-file:write(side.."\n")
+configPath = shell.resolve(".").."/elevator.cfg"
+--fs.delete(configPath)
+
+local file = io.open(configPath, "w")
+file:write(modemSide.."\n")
+file:write(elevatorID.."\n")
 file:write(coords.."\n")
 file:write(y.."\31"..floorName)
 file:close()
 term.write("Done")
 
-term.setCursorPos(5,7); term.write("Setting elevator-main.lua to run on startup... ")
+writeToPos(5,7,"Setting elevator-main.lua to run on startup... ")
 
 file = io.open("/startup", "w")
 file:write("shell.run(\"/"..shell.resolve(".").."/elevator-main.lua\")")
 file:close()
 term.write("Done")
 
-term.setCursorPos(5,9);
-term.write("Press any key to reboot...")
+writeToPos(5, 9, "Press any key to reboot...")
 os.pullEvent("key")
 os.reboot()
