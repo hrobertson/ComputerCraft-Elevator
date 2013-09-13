@@ -104,7 +104,7 @@ function getElevatorID()
 	writeToPos(3, 7, "raining, perhaps exit now and try again later.")
 	local modem = peripheral.wrap(modemSide)
 	modem.open(os.getComputerID())
-	modem.transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_DISCOVER") -- Ask all elevator terminals in range to tell us their elevator ID
+	modem.transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV\030ALL\030DISCOVER") -- Ask all elevator terminals in range to tell us their elevator ID
 	local tElevatorIDs = {}
 	local mt = {
 		tMeta = {},
@@ -124,9 +124,12 @@ function getElevatorID()
 	local tHandlers = {
 		modem_message = function (_, sChannel, sReplyChannel, sMessage, nDistance)
 			discoveryTimer = os.startTimer(3) -- Reset timer
-			if sChannel == os.getComputerID() and sMessage:sub(1,7) == "ELEV_ID" then
-				-- Using elevator ID as the index, record unique IDs. On duplicate, just overwrite - probably more efficient than reading and checking each time.
-				tElevatorIDs[sMessage:sub(8)] = true
+			local iter = string.gmatch(sMessage, "([^\030]+)")
+			if sChannel == os.getComputerID() and iter() == "ELEV" then
+				local eID = iter()
+				if iter() == "ID" then
+					tElevatorIDs[eID] = true
+				end
 			end
 		end,
 		timer = function (timerID)
@@ -245,7 +248,7 @@ function getCoordsInput()
 	writeToPos(4,15,"you need to place another host off to the side")
 	writeToPos(4,16,"to enable an accurate GPS fix")
 	writeToPos(4,17,"(Usage: gps host x y z")
-	term.setCursorPos(22,7)setCursorBlink(true)
+	term.setCursorPos(22,7); term.setCursorBlink(true)
 	
 	local selected, inputs = 1, {"","",""}
 	

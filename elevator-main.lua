@@ -84,7 +84,7 @@ function updateMenu()
 
 	local updateFunctions = {
 		function () -- Selection 1: Update all elevators in range
-			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE")
+			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", true)
 		end,
 		function () -- Selection 2: Update this elevator
 			
@@ -151,8 +151,8 @@ function serialise(t)
 	return s
 end
 
-function addFloor(sMessage, offset)
-	local iter = string.gmatch(sMessage:sub(offset), "([^\031]+)")
+function addFloor(sMessage)
+	local iter = string.gmatch(sMessage, "([^\031]+)")
 	local y,label = tonumber(iter()),iter()
 	floors[y] = label
 	newFloorTimer = os.startTimer(3)
@@ -169,9 +169,11 @@ function sortReverse(t)
 	end
 end
 
-function transmit(sChannel, sReplyChannel, sMessage)
+function transmit(sChannel, sReplyChannel, sMessage, tBroadcast)
+	-- tBroadcast optionaly specifies that "ALL" should be used instead of the elevator ID
+	-- Messages are sent in this format: "ELEV" elevID/"ALL" messageID [messageBody]
 	modem.close(sChannel)
-	modem.transmit(sChannel, sReplyChannel, sMessage)
+	modem.transmit(sChannel, sReplyChannel, "ELEV\030"..(tBroadcast and "ALL" or elevID).."\030"..sMessage)
 	modem.open(sChannel)
 end
 
@@ -180,57 +182,82 @@ function pause()
 	os.pullEvent("key")
 end
 
-handlers = {
-	modem_message =
-		function (_, sChannel, sReplyChannel, sMessage, nDistance)
+eventHandlers = {
+	modemFunctions = {
+		["DISCOVER"] = function (sReplyChannel)
+		-- Respond to elevator ID discovery request
+			print("sending elevID")
+			transmit(sReplyChannel, CHANNEL_ELEVATOR, "ID") -- No need for broadcast flag as the code in setup.lua doesn't filter based on elevID
+		end,
 
-			-- Received GPS ping, send response
-			if z and sChannel == gps.CHANNEL_GPS and sMessage == "PING" then
-				transmit(sReplyChannel, gps.CHANNEL_GPS, textutils.serialize({x,y,z}))
+		--["ID"] This function doesn't exist here as these messages are only for the setup program
 
-			-- Elevator ID discovery request & response
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,13) == "ELEV_DISCOVER" then
-				transmit(sReplyChannel, CHANNEL_ELEVATOR, "ELEV_ID"..elevID)
+		["ANNOUNCE"] = function (sReplyChannel, sMessage)
+		-- Received new floor announcement broadcast
+			-- Add floor to local table
+			addFloor(sMessage)
+			-- Send reply of own y and label
+			transmit(sReplyChannel, CHANNEL_ELEVATOR, "REPLY\030"..y.."\031"..floors[y])
+		end,
 
-			-- Received new floor announcement broadcast
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,13) == "ELEV_ANNOUNCE" and sMessage:sub(14,13) ==then
-				-- Add floor to local table
-				addFloor(sMessage,14)
-				-- Send reply of own y and label
-				transmit(sReplyChannel, CHANNEL_ELEVATOR, "ELEV_REPLY"..y.."\031"..floors[y])
+		["REPLY"] = function ()
+		-- Received a reply to own announcement
+			addFloor(sMessage)
+		end,
 
-			-- Received a reply to own announcement
-			elseif sChannel == os.getComputerID() and sMessage:sub(1,10) == "ELEV_REPLY" then
-				addFloor(sMessage,11)
+		["ACTIVATE"] = function (sReplyChannel, sMessage)
+		-- Elevator activation message from another floor
+			acceptInput = false
+			-- Check if this floor is the destination
+			if tonumber(sMessage:sub(14)) == y then
+				ignoreDetector = false
+				rs.setBundledOutput(bundleSide, colors[elevatorWire])
+				term.clear()
+				writeToPos(19,7,"Incoming cart")
+				writeToPos(15,9,"Please clear the track")
+			else
+				displayBusy()
+			end
+		end,
 
-			-- Elevator activation message from another floor
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,13) == "ELEV_ACTIVATE" then
-				acceptInput = false
-				-- Check if this floor is the destination
-				if tonumber(sMessage:sub(14)) == y then
-					ignoreDetector = false
-					rs.setBundledOutput(bundleSide, colors[elevatorWire])
-					term.clear()
-					writeToPos(19,7,"Incoming cart")
-					writeToPos(15,9,"Please clear the track")
-				else
-					displayBusy()
+		["CALL"] = function ()
+		-- Received cart call message
+			acceptInput = false
+			displayBusy()
+			-- Pulse the boarding rail to send any cart that might be on it
+			rs.setBundledOutput(bundleSide, colors[boardingWire])
+			sleep(1)
+			rs.setBundledOutput(bundleSide, 0)
+		end,
+
+		["CLEAR"] = function ()
+		-- Recaived notifcation that a cart has arrived at another floor (and so the elevator is probably clear for use)
+			if departedTimer then departedTimer = nil end
+			acceptInput = true
+			renderFloorList(true)
+		end
+	},
+
+	modem_message = 
+		function (_, sChannel, sReplyChannel, sMessage)
+			term.clear()
+			print("modem_message")
+			if sChannel == CHANNEL_ELEVATOR or sChannel == os.getComputerID() then
+				local iter = string.gmatch(sMessage, "([^\030]+)")
+				if iter() ~= "ELEV" then return end -- Right channel but not meant for us
+				local eID = iter()
+				print("point1. eID: "..eID)
+				if eID == elevID or eID == "ALL" then -- Correct elevID or message is for all elevators (and there is a corresponding function)
+					print("point2")
+					local f = eventHandlers.modemFunctions[iter()]
+					if type(f) == "function" then
+						return f(sReplyChannel, iter()) -- iter() = rest of the message
+					end
 				end
 
-			-- Received cart call message
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,9) == "ELEV_CALL" then
-				acceptInput = false
-				displayBusy()
-				-- Pulse the boarding rail to send any cart that might be on it
-				rs.setBundledOutput(bundleSide, colors[boardingWire])
-				sleep(1)
-				rs.setBundledOutput(bundleSide, 0)
-
-			-- Recaived notifcation that a cart has arrived at another floor (and so the elevator is probably clear for use)
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage == "ELEV_CLEAR" then
-				if departedTimer then departedTimer = nil end
-				acceptInput = true
-				renderFloorList(true)
+			-- Reply to GPS ping
+			elseif z and sChannel == gps.CHANNEL_GPS and sMessage == "PING" then
+				modem.transmit(sReplyChannel, gps.CHANNEL_GPS, textutils.serialize({x,y,z}))
 			end
 		end,
 
@@ -259,11 +286,11 @@ handlers = {
 					ignoreDetector = false
 					acceptInput = false
 					rs.setBundledOutput(bundleSide, colors[elevatorWire])
-					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CALL")
+					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "CALL")
 					term.clear()
 					writeToPos(20,8,"Cart called")
 				elseif keycode == 28 and selected ~= floors.heights.y then -- enter
-					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ACTIVATE"..floors.heights[selected])
+					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ACTIVATE\030"..floors.heights[selected])
 					rs.setBundledOutput(bundleSide, colors[boardingWire])
 					acceptInput = false
 					term.clear()
@@ -300,7 +327,7 @@ handlers = {
 		function()
 			if ignoreDetector == false and colors.test(redstone.getBundledInput(bundleSide), colors[detetctorWire]) then
 				ignoreDetector = true
-				transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CLEAR")
+				transmit(CHANNEL_ELEVATOR, os.getComputerID(), "CLEAR")
 				redstone.setBundledOutput(bundleSide, 0)
 				renderFloorList(true)
 			end
@@ -361,7 +388,7 @@ sortReverse(floors)
 
 -- Announce self to other floors
 modem.open(os.getComputerID())
-transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ANNOUNCE"..y.."\031"..floors[y])
+transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ANNOUNCE\030"..y.."\031"..floors[y])
 
 selected = floors.heights.y
 
@@ -376,5 +403,5 @@ else
 end
 
 while true do
-	handlers:handle(os.pullEvent())
+	eventHandlers:handle(os.pullEvent())
 end
