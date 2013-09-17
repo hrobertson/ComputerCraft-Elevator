@@ -32,7 +32,7 @@ if response then
 	latestVersion = response.readLine()
 	response.close()
 	if latestVersion ~= version then
-		updateAvailble = true
+		updateAvailable = true
 	end
 end
 
@@ -92,7 +92,7 @@ function updateMenu()
 		function () -- Selection 3: Just update this computer
 			
 		end
-	}
+	} 
 
 	local eventHandlers = {
 		key =
@@ -209,7 +209,7 @@ eventHandlers = {
 		-- Elevator activation message from another floor
 			acceptInput = false
 			-- Check if this floor is the destination
-			if tonumber(sMessage:sub(14)) == y then
+			if tonumber(sMessage) == y then
 				ignoreDetector = false
 				rs.setBundledOutput(bundleSide, colors[elevatorWire])
 				term.clear()
@@ -235,9 +235,23 @@ eventHandlers = {
 			if departedTimer then departedTimer = nil end
 			acceptInput = true
 			renderFloorList(true)
+		end,
+		
+		["UPDATE"] = function ()
+			--  Forwd msh to elev
+			transmit(CHANNEL_ELEVATOR, sReplyChannel, "UPDATE"
+			if updateAvailable then
+				if shell.run("pastebin", "get", "iJWyUQVr", "elevator-main-update.lua") then
+					fs.delete("elevator-main.lua")
+					fs.move("elevator-main-update.lua", "elevator-main.lua")
+					os.reboot()
+				else
+					transmit(sReplyChannel, os.getComputerID(), "UPDATE\030ERROR", true)
+				end
+			end
 		end
 	},
-
+	
 	modem_message = 
 		function (_, sChannel, sReplyChannel, sMessage)
 			term.clear()
@@ -349,7 +363,7 @@ end
 function renderFloorList(reset)
 	if reset then selected = floors.heights.y end
 	term.clear()
-	if updateAvailble then
+	if updateAvailable then
 		writeToPos(30,1,"New version available!")
 		writeToPos(33,2,"Press U for options")
 	end
