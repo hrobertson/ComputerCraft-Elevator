@@ -27,7 +27,7 @@ If you make your own version publicly available, then please also publish it at 
 --]]
 
 version = "2.1.0b"
-response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD") -- beginnings 
+response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD") 
 if response then
 	latestVersion = response.readLine()
 	response.close()
@@ -44,8 +44,7 @@ if i then
 else
 	config = "elevator.cfg"
 end
-print(config)
-file = assert(io.open(config, "r"), "Failed to open elevator.cfg\nRun setup.lua first")
+file = assert(io.open(config, "r"), "Failed to open "..config.."\nRun setup.lua first")
 modemSide,elevID,coords,floors = file:read("*l"),file:read("*l"),file:read("*l"),file:read("*l"); file:close()
 iter = string.gmatch(coords, "([^\031]+)") -- create iterator
 x,y,z = tonumber(iter()),tonumber(iter()),tonumber(iter());iter = nil
@@ -74,7 +73,6 @@ function updateMenu()
 	writeToPos(4, 5, "Please select one of the following options:")
 	writeToPos(6, 7, "[x] Update all elevators within range")
 	writeToPos(6, 8, " x  Update this elevator")
-	writeToPos(6, 9, " x  Just update this computer")
 	writeToPos(1, 19, "Arrow keys change selection    Backspace to go back")	
 
 	local function changeSelection(previousSelection)
@@ -82,47 +80,38 @@ function updateMenu()
 		writeToPos(6,6+selected,"[x]")
 	end
 
-	local updateFunctions = {
-		function () -- Selection 1: Update all elevators in range
-			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", true)
-		end,
-		function () -- Selection 2: Update this elevator
-			
-		end,
-		function () -- Selection 3: Just update this computer
-			
-		end
-	} 
-
-	local eventHandlers = {
-		key =
-			function (keycode)
-					if (keycode == 200) then -- up
-						if selected > 1 then
-							selected = selected - 1
-						end
-						changeSelection(selected + 1)
-					elseif (keycode == 208) then -- down
-						if selected < 3 then
-							selected = selected + 1
-						end
-						changeSelection(selected - 1)
-					elseif keycode == 28 then -- enter
-						updateFunctions[selected]()
-					end
-			end,
-		
-		handle =
-			function (self, f, ...)
-				f = self[f]
-				if type(f) == "function" then return f(...) end
+	local keyHandlers = {
+		[200] = function () -- up arrow
+			if selected == 2 then
+				selected = 1
+				changeSelection(2)
 			end
+		end,
+
+		[208] = function () -- down arrow
+			if selected == 1 then
+				selected = 2
+				changeSelection(1)
+			end
+		end,
+
+		[28] = function () -- enter/return
+			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", selected ~= 1)
+		end,
+
+		[14] = function () -- backspace
+			return true
+		end
 	}
 
 	while true do
-		eventHandlers:handle(os.pullEvent())
+		_, keycode = os.pullEvent("key")
+		f = keyHandlers[keycode]
+		if type(f) == "function" then
+			if f() then return end
+		end
 	end
-end -- updateOptions()
+end -- updateMenu()
 
 function unserialise(s)
 	local t = {}
@@ -146,7 +135,7 @@ end
 function serialise(t)
 	local s = ""
 	for i=1,#t.heights do
-		s = s..t.heights[i].."\31"..t[t.heights[i]].."\30"
+		s = s..t.heights[i].."\031"..t[t.heights[i]].."\030"
 	end
 	return s
 end
@@ -186,7 +175,6 @@ eventHandlers = {
 	modemFunctions = {
 		["DISCOVER"] = function (sReplyChannel)
 		-- Respond to elevator ID discovery request
-			print("sending elevID")
 			transmit(sReplyChannel, CHANNEL_ELEVATOR, "ID") -- No need for broadcast flag as the code in setup.lua doesn't filter based on elevID
 		end,
 
@@ -200,7 +188,7 @@ eventHandlers = {
 			transmit(sReplyChannel, CHANNEL_ELEVATOR, "REPLY\030"..y.."\031"..floors[y])
 		end,
 
-		["REPLY"] = function ()
+		["REPLY"] = function (_, sMessage)
 		-- Received a reply to own announcement
 			addFloor(sMessage)
 		end,
@@ -237,11 +225,11 @@ eventHandlers = {
 			renderFloorList(true)
 		end,
 		
-		["UPDATE"] = function ()
+		["UPDATE"] = function (sReplyChannel, _, eID)
 			if not ignoreUpdates then
 				ignoreUpdates = true
 				ignoreUpdateTimer = os.startTimer(3)
-				transmit(CHANNEL_ELEVATOR, sReplyChannel, "UPDATE")
+				transmit(CHANNEL_ELEVATOR, sReplyChannel, "UPDATE", eID == "ALL")
 				if updateAvailable then
 					if shell.run("pastebin", "get", "iJWyUQVr", "elevator-main-update.lua") then
 						fs.delete("elevator-main.lua")
@@ -255,22 +243,18 @@ eventHandlers = {
 	
 	modem_message = 
 		function (_, sChannel, sReplyChannel, sMessage)
-			term.clear()
-			print("modem_message")
 			if sChannel == CHANNEL_ELEVATOR or sChannel == os.getComputerID() then
 				local iter = string.gmatch(sMessage, "([^\030]+)")
 				if iter() ~= "ELEV" then return end -- Right channel but not meant for us
 				local eID = iter()
-				print("point1. eID: "..eID)
-				if eID == elevID or eID == "ALL" then -- Correct elevID or message is for all elevators (and there is a corresponding function)
-					print("point2")
+				if eID == elevID or eID == "ALL" then -- Correct elevID or message is for all elevators
 					local f = eventHandlers.modemFunctions[iter()]
 					if type(f) == "function" then
-						return f(sReplyChannel, iter()) -- iter() = rest of the message
+						return f(sReplyChannel, iter(), eID) -- iter() = rest of the message
 					end
 				end
 
-			-- Reply to GPS ping
+			-- Reply to GPS ping if we know our full coords
 			elseif z and sChannel == gps.CHANNEL_GPS and sMessage == "PING" then
 				modem.transmit(sReplyChannel, gps.CHANNEL_GPS, textutils.serialize({x,y,z}))
 			end
@@ -316,6 +300,7 @@ eventHandlers = {
 					departedTimer = os.startTimer(2)
 				elseif keycode == 22 then -- U for update menu
 					updateMenu()
+					renderFloorList()
 				end
 			end
 		end,
