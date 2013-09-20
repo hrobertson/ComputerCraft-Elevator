@@ -8,8 +8,8 @@ This is a LUA program for ComputerCraft, a Minecraft mod by Daniel Ratcliffe aka
 This program is for controlling elevators from the Railcraft mod (http://www.railcraft.info/)
 For help and feedback please use this forum thread: http://www.computercraft.info/forums2/index.php?/topic/1302-railcraft-mod-elevator-control/
 
-This is version 2b. It is in the beta release stage and so there may be bug. If you believe you have found a bug, please report it at the above forum thread
-The following four variables can be used to specify details of the RP2 wiring you have used:
+This is version 2b. It is in the beta release stage and so there may be bugs. If you believe you have found a bug, please report it at the above forum thread
+The following four variables can be used to specify details of the wiring you have used:
 --]]
 
 bundleSide = "bottom" -- The side of the computer to which the bundled cable is attached
@@ -26,36 +26,35 @@ You are permitted to modify and or build upon this work.
 If you make your own version publicly available, then please also publish it at the above forum thread. Thank you and happy coding!
 --]]
 
-version = "2.0.3b"
-response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD")
+version = "2.2.0b"
+response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD") 
 if response then
 	latestVersion = response.readLine()
 	response.close()
 	if latestVersion ~= version then
-		updateAvailble = true
+		updateAvailable = true
 	end
 end
 
 CHANNEL_ELEVATOR = 34080
-acceptInput, ignoreDetector, newFloorTimer, departedTimer = false, true, nil, nil
+acceptInput, ignoreDetector, newFloorTimer, departedTimer, ignoreUpdates, ignoreUpdateTimer = false, true, nil, nil, false, nil
 dir = shell.getRunningProgram(); i = string.find(dir, "/")
 if i then
 	config = dir:sub(1,i).."/elevator.cfg"
 else
 	config = "elevator.cfg"
 end
-print(config)
-file = assert(io.open(config, "r"), "Failed to open elevator.cfg\nRun setup.lua first")
-modemSide,coords,floors = file:read("*l"),file:read("*l"),file:read("*l"); file:close()
+file = assert(io.open(config, "r"), "Failed to open "..config.."\nRun setup.lua first")
+modemSide,elevID,coords,floors = file:read("*l"),file:read("*l"),file:read("*l"),file:read("*l"); file:close()
 iter = string.gmatch(coords, "([^\031]+)") -- create iterator
 x,y,z = tonumber(iter()),tonumber(iter()),tonumber(iter());iter = nil
 modem = peripheral.wrap(modemSide)
 
 if z ~= nil then
 	print("Starting GPS host")
-	if not modem.isOpen( gps.CHANNEL_GPS ) then
-		print( "Opening GPS channel on "..modemSide.." modem" )
-		modem.open( gps.CHANNEL_GPS )
+	if not modem.isOpen(gps.CHANNEL_GPS) then
+		print("Opening GPS channel on "..modemSide.." modem")
+		modem.open(gps.CHANNEL_GPS)
 	end
 else 
 	y = x; x = nil
@@ -74,55 +73,56 @@ function updateMenu()
 	writeToPos(4, 5, "Please select one of the following options:")
 	writeToPos(6, 7, "[x] Update all elevators within range")
 	writeToPos(6, 8, " x  Update this elevator")
-	writeToPos(6, 9, " x  Just update this computer")
-	writeToPos(1, 19, "Arrow keys change selection     Backspace to go back")	
+	writeToPos(1, 19, "Arrow keys change selection    Backspace to go back")	
 
 	local function changeSelection(previousSelection)
 		writeToPos(6,6+previousSelection," x ")
-		writeToPos(6,6+selection,"[x]")
+		writeToPos(6,6+selected,"[x]")
 	end
 
-	local updateFunctions = {
-		function () -- Selection 1: Update all elevators in range
-			transmit( CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE" )
+	local keyHandlers = {
+		[200] = function () -- up arrow
+			if selected == 2 then
+				selected = 1
+				changeSelection(2)
+			end
 		end,
-		function () -- Selection 2: Update this elevator
-			
+
+		[208] = function () -- down arrow
+			if selected == 1 then
+				selected = 2
+				changeSelection(1)
+			end
 		end,
-		function () -- Selection 3: Just update this computer
-			
+
+		[28] = function () -- enter/return
+			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", (selected == 1))
+			doUpdate()
+		end,
+
+		[14] = function () -- backspace
+			return true
 		end
 	}
 
-	local eventHandlers = {
-		key =
-			function (keycode)
-					if (keycode == 200) then -- up
-						if selected > 1 then
-							selected = selected - 1
-						end
-						changeSelection(selected + 1)
-					elseif (keycode == 208) then -- down
-						if selected < 3 then
-							selected = selected + 1
-						end
-						changeSelection(selected - 1)
-					elseif keycode == 28 then -- enter
-						updateFunctions[selected]()
-					end
-			end,
-		
-		handle =
-			function (self, f, ...)
-				f = self[f]
-				if type(f) == "function" then return f(...) end
-			end
-	}
-
 	while true do
-		eventHandlers:handle(os.pullEvent())
+		_, keycode = os.pullEvent("key")
+		f = keyHandlers[keycode]
+		if type(f) == "function" then
+			if f() then return end
+		end
 	end
-end -- updateOptions()
+end -- updateMenu()
+
+function doUpdate()
+	if updateAvailable then
+		if shell.run("pastebin", "get", "iJWyUQVr", "elevator-main-update.lua") then
+			fs.delete("elevator-main.lua")
+			fs.move("elevator-main-update.lua", "elevator-main.lua")
+			os.reboot()
+		end
+	end
+end
 
 function unserialise(s)
 	local t = {}
@@ -146,13 +146,13 @@ end
 function serialise(t)
 	local s = ""
 	for i=1,#t.heights do
-		s = s..t.heights[i].."\31"..t[t.heights[i]].."\30"
+		s = s..t.heights[i].."\031"..t[t.heights[i]].."\030"
 	end
 	return s
 end
 
-function addFloor(sMessage, offset)
-	local iter = string.gmatch(sMessage:sub(offset), "([^\031]+)")
+function addFloor(sMessage)
+	local iter = string.gmatch(sMessage, "([^\031]+)")
 	local y,label = tonumber(iter()),iter()
 	floors[y] = label
 	newFloorTimer = os.startTimer(3)
@@ -169,47 +169,99 @@ function sortReverse(t)
 	end
 end
 
-function transmit(sChannel, sReplyChannel, sMessage)
+function transmit(sChannel, sReplyChannel, sMessage, tBroadcast)
+	-- tBroadcast optionaly specifies that "ALL" should be used instead of the elevator ID
+	-- Messages are sent in this format: "ELEV" elevID/"ALL" messageID [messageBody]
 	modem.close(sChannel)
-	modem.transmit(sChannel, sReplyChannel, sMessage)
+	modem.transmit(sChannel, sReplyChannel, "ELEV\030"..(tBroadcast and "ALL" or elevID).."\030"..sMessage)
 	modem.open(sChannel)
 end
 
-handlers = {
-	modem_message =
-		function (_, sChannel, sReplyChannel, sMessage, nDistance)
-			if z and sChannel == gps.CHANNEL_GPS and sMessage == "PING" then
-				-- Received GPS ping, send response
-				transmit( sReplyChannel, gps.CHANNEL_GPS, textutils.serialize({x,y,z}) )
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,13) == "ELEV_ANNOUNCE" then
-				-- Received elevator floor announcement broadcast, add floor to local table
-				addFloor(sMessage,14)
-				-- Send reply of own y and label
-				transmit( sReplyChannel, CHANNEL_ELEVATOR, "ELEV_REPLY"..y.."\031"..floors[y] )
-			elseif sChannel == os.getComputerID() and sMessage:sub(1,10) == "ELEV_REPLY" then
-				-- Received a reply to own announcement
-				addFloor(sMessage,11)
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,13) == "ELEV_ACTIVATE" then
-				acceptInput = false
-				if tonumber(sMessage:sub(14)) == y then
-					ignoreDetector = false
-					rs.setBundledOutput(bundleSide, colors[elevatorWire])
-					term.clear()
-					writeToPos(19,7,"Incoming cart")
-					writeToPos(15,9,"Please clear the track")
-				else
-					displayBusy()
-				end
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage:sub(1,9) == "ELEV_CALL" then
-				acceptInput = false
+function pause()
+	print ("Press any key to continue...")
+	os.pullEvent("key")
+end
+
+eventHandlers = {
+	modemFunctions = {
+		["DISCOVER"] = function (sReplyChannel)
+		-- Respond to elevator ID discovery request
+			transmit(sReplyChannel, CHANNEL_ELEVATOR, "ID") -- No need for broadcast flag as the code in setup.lua doesn't filter based on elevID
+		end,
+
+		--["ID"] This function doesn't exist here as these messages are only for the setup program
+
+		["ANNOUNCE"] = function (sReplyChannel, sMessage)
+		-- Received new floor announcement broadcast
+			-- Add floor to local table
+			addFloor(sMessage)
+			-- Send reply of own y and label
+			transmit(sReplyChannel, CHANNEL_ELEVATOR, "REPLY\030"..y.."\031"..floors[y])
+		end,
+
+		["REPLY"] = function (_, sMessage)
+		-- Received a reply to own announcement
+			addFloor(sMessage)
+		end,
+
+		["ACTIVATE"] = function (sReplyChannel, sMessage)
+		-- Elevator activation message from another floor
+			acceptInput = false
+			-- Check if this floor is the destination
+			if tonumber(sMessage) == y then
+				ignoreDetector = false
+				rs.setBundledOutput(bundleSide, colors[elevatorWire])
+				term.clear()
+				writeToPos(19,7,"Incoming cart")
+				writeToPos(15,9,"Please clear the track")
+			else
 				displayBusy()
-				rs.setBundledOutput(bundleSide, colors[boardingWire])
-				sleep(1)
-				rs.setBundledOutput(bundleSide, 0)
-			elseif sChannel == CHANNEL_ELEVATOR and sMessage == "ELEV_CLEAR" then
-				if departedTimer then departedTimer = nil end
-				acceptInput = true
-				renderFloorList(true)
+			end
+		end,
+
+		["CALL"] = function ()
+		-- Received cart call message
+			acceptInput = false
+			displayBusy()
+			-- Pulse the boarding rail to send any cart that might be on it
+			rs.setBundledOutput(bundleSide, colors[boardingWire])
+			sleep(1)
+			rs.setBundledOutput(bundleSide, 0)
+		end,
+
+		["CLEAR"] = function ()
+		-- Recaived notifcation that a cart has arrived at another floor (and so the elevator is probably clear for use)
+			if departedTimer then departedTimer = nil end
+			acceptInput = true
+			renderFloorList(true)
+		end,
+		
+		["UPDATE"] = function (sReplyChannel, _, eID)
+			if not ignoreUpdates then
+				ignoreUpdates = true
+				ignoreUpdateTimer = os.startTimer(3)
+				transmit(CHANNEL_ELEVATOR, sReplyChannel, "UPDATE", eID == "ALL")
+				doUpdate()
+			end
+		end
+	},
+	
+	modem_message = 
+		function (_, sChannel, sReplyChannel, sMessage)
+			if sChannel == CHANNEL_ELEVATOR or sChannel == os.getComputerID() then
+				local iter = string.gmatch(sMessage, "([^\030]+)")
+				if iter() ~= "ELEV" then return end -- Right channel but not meant for us
+				local eID = iter()
+				if eID == elevID or eID == "ALL" then -- Correct elevID or message is for all elevators
+					local f = eventHandlers.modemFunctions[iter()]
+					if type(f) == "function" then
+						return f(sReplyChannel, iter(), eID) -- iter() = rest of the message
+					end
+				end
+
+			-- Reply to GPS ping if we know our full coords
+			elseif z and sChannel == gps.CHANNEL_GPS and sMessage == "PING" then
+				modem.transmit(sReplyChannel, gps.CHANNEL_GPS, textutils.serialize({x,y,z}))
 			end
 		end,
 
@@ -238,11 +290,11 @@ handlers = {
 					ignoreDetector = false
 					acceptInput = false
 					rs.setBundledOutput(bundleSide, colors[elevatorWire])
-					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CALL")
+					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "CALL")
 					term.clear()
 					writeToPos(20,8,"Cart called")
 				elseif keycode == 28 and selected ~= floors.heights.y then -- enter
-					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ACTIVATE"..floors.heights[selected])
+					transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ACTIVATE\030"..floors.heights[selected])
 					rs.setBundledOutput(bundleSide, colors[boardingWire])
 					acceptInput = false
 					term.clear()
@@ -253,6 +305,7 @@ handlers = {
 					departedTimer = os.startTimer(2)
 				elseif keycode == 22 then -- U for update menu
 					updateMenu()
+					renderFloorList()
 				end
 			end
 		end,
@@ -264,13 +317,16 @@ handlers = {
 				sortReverse(floors)
 				local file = io.open("elevator.cfg", "w")
 				file:write(modemSide.."\n")
+				file:write(elevID.."\n")
 				file:write(coords.."\n")
 				file:write(serialise(floors))
 				file:close()
-				renderFloorList(reset)
+				renderFloorList(true)
 			elseif timerID == departedTimer then
 				departedTimer = nil
 				displayBusy()
+			elseif timerID == ignoreUpdateTimer then
+				ignoreUpdates = false
 			end
 		end,
 
@@ -278,7 +334,7 @@ handlers = {
 		function()
 			if ignoreDetector == false and colors.test(redstone.getBundledInput(bundleSide), colors[detetctorWire]) then
 				ignoreDetector = true
-				transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_CLEAR")
+				transmit(CHANNEL_ELEVATOR, os.getComputerID(), "CLEAR")
 				redstone.setBundledOutput(bundleSide, 0)
 				renderFloorList(true)
 			end
@@ -300,7 +356,7 @@ end
 function renderFloorList(reset)
 	if reset then selected = floors.heights.y end
 	term.clear()
-	if updateAvailble then
+	if updateAvailable then
 		writeToPos(30,1,"New version available!")
 		writeToPos(33,2,"Press U for options")
 	end
@@ -338,8 +394,8 @@ floors = unserialise(floors)
 sortReverse(floors)
 
 -- Announce self to other floors
-modem.open( os.getComputerID() )
-transmit( CHANNEL_ELEVATOR, os.getComputerID(), "ELEV_ANNOUNCE"..y.."\031"..floors[y] )
+modem.open(os.getComputerID())
+transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ANNOUNCE\030"..y.."\031"..floors[y])
 
 selected = floors.heights.y
 
@@ -354,5 +410,5 @@ else
 end
 
 while true do
-	handlers:handle(os.pullEvent())
+	eventHandlers:handle(os.pullEvent())
 end
