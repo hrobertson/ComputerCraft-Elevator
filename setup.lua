@@ -13,7 +13,7 @@ This is version 2b. It is in the beta release stage and so there may be bugs. If
 You are permitted to modify and or build upon this work.
 If you make your own version publicly available, then please also publish it at the above forum thread. Thank you and happy coding!
 
-NOTE: This is the setup program. It will create a file called elevator.cfg and download the main program to elevator.lua
+NOTE: This is the setup program. It will create a file called elevator.cfg and download the main program to elevator-main.lua
 
 Use Ctrl+T to terminate the program
 --]]
@@ -99,9 +99,9 @@ end--getModemSide()
 function getElevatorID()
 	local elevatorID
 	printSetupHeader()
-	writeToPos(1, 4, "Searching for other elevators to avoid conflicts...")
-	writeToPos(3, 6, "Remember that rain reduces modem range. If it is")
-	writeToPos(3, 7, "raining, perhaps exit now and try again later.")
+	writeToPos(3, 4, "Searching for other elevators.")
+	writeToPos(3, 6, "This may take a few seconds...")
+	writeToPos(5, 10, "(Remember that rain reduces modem range)")
 	local modem = peripheral.wrap(modemSide)
 	modem.open(os.getComputerID())
 	modem.transmit(CHANNEL_ELEVATOR, os.getComputerID(), "ELEV\030ALL\030DISCOVER") -- Ask all elevator terminals in range to tell us their elevator ID
@@ -141,7 +141,7 @@ function getElevatorID()
 		local v = eventHandle(tHandlers, os.pullEvent())
 		if v then break end
 	end
-	writeToPos(3, 9, "Press any key to continue...") -- Pause to let them read the message about rain
+	writeToPos(3, 6, "Press any key to continue...  ") -- Pause to let them read the message about rain
 	os.pullEvent("key")
 
 	local function getCustomID()
@@ -153,7 +153,7 @@ function getElevatorID()
 
 	printSetupHeader()
 	if #tElevatorIDs == 0 then
-		writeToPos(2, 5, "No other elevators detected.")
+		writeToPos(2, 5, "No existing elevators detected.")
 		elevatorID = getCustomID()
 	else
 		writeToPos(2, 5, "The following elevator IDs were detected:")
@@ -374,6 +374,7 @@ function getFloorCoords()
 	end
 end--getFloorCoords()
 
+fs.delete("elevator-main.lua")
 if not shell.run("pastebin", "get", "iJWyUQVr", "elevator-main.lua") then
 	print("Failed to download main program. Try manually from pastebin: iJWyUQVr\n(this is just the setup component)")
 	return
@@ -411,8 +412,7 @@ end
 
 printSetupHeader(true)
 configPath = shell.resolve(".").."/elevator.cfg"
---fs.delete(configPath)
-
+fs.delete(configPath)
 local file = io.open(configPath, "w")
 file:write(modemSide.."\n")
 file:write(elevatorID.."\n")

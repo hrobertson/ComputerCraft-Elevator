@@ -8,8 +8,8 @@ This is a LUA program for ComputerCraft, a Minecraft mod by Daniel Ratcliffe aka
 This program is for controlling elevators from the Railcraft mod (http://www.railcraft.info/)
 For help and feedback please use this forum thread: http://www.computercraft.info/forums2/index.php?/topic/1302-railcraft-mod-elevator-control/
 
-This is version 2b. It is in the beta release stage and so there may be bug. If you believe you have found a bug, please report it at the above forum thread
-The following four variables can be used to specify details of the RP2 wiring you have used:
+This is version 2b. It is in the beta release stage and so there may be bugs. If you believe you have found a bug, please report it at the above forum thread
+The following four variables can be used to specify details of the wiring you have used:
 --]]
 
 bundleSide = "bottom" -- The side of the computer to which the bundled cable is attached
@@ -26,7 +26,7 @@ You are permitted to modify and or build upon this work.
 If you make your own version publicly available, then please also publish it at the above forum thread. Thank you and happy coding!
 --]]
 
-version = "2.1.0b"
+version = "2.2.0b"
 response = http.get("http://pastebin.com/raw.php?i=r3mt8mDD") 
 if response then
 	latestVersion = response.readLine()
@@ -96,7 +96,8 @@ function updateMenu()
 		end,
 
 		[28] = function () -- enter/return
-			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", selected ~= 1)
+			transmit(CHANNEL_ELEVATOR, os.getComputerID(), "UPDATE", (selected == 1))
+			doUpdate()
 		end,
 
 		[14] = function () -- backspace
@@ -112,6 +113,16 @@ function updateMenu()
 		end
 	end
 end -- updateMenu()
+
+function doUpdate()
+	if updateAvailable then
+		if shell.run("pastebin", "get", "iJWyUQVr", "elevator-main-update.lua") then
+			fs.delete("elevator-main.lua")
+			fs.move("elevator-main-update.lua", "elevator-main.lua")
+			os.reboot()
+		end
+	end
+end
 
 function unserialise(s)
 	local t = {}
@@ -230,13 +241,7 @@ eventHandlers = {
 				ignoreUpdates = true
 				ignoreUpdateTimer = os.startTimer(3)
 				transmit(CHANNEL_ELEVATOR, sReplyChannel, "UPDATE", eID == "ALL")
-				if updateAvailable then
-					if shell.run("pastebin", "get", "iJWyUQVr", "elevator-main-update.lua") then
-						fs.delete("elevator-main.lua")
-						fs.move("elevator-main-update.lua", "elevator-main.lua")
-						os.reboot()
-					end
-				end
+				doUpdate()
 			end
 		end
 	},
